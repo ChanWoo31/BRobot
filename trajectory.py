@@ -1,27 +1,71 @@
 import numpy as np
+from ruckig import Ruckig, InputParameter, Result
+import matplotlib.pyplot as plt
 
-def lspb_segment(q0, q1, V_max, A_max, N=100):
-    dq = q1 - q0
-    T_a = V_max / A_max
-    # 등속 구간 길이 계산
-    T_flat = (dq - A_max*T_a**2) / V_max
-    # 전체 구간 시간
-    T = 2*T_a + T_flat
-    # 시간 샘플
-    t = np.linspace(0, T, N)
-    q = np.zeros_like(t)
-    for i, ti in enumerate(t):
-        if ti < T_a:
-            q[i] = q0 + 0.5*A_max*ti**2
-        elif ti < (T - T_a):
-            q[i] = q0 + 0.5*A_max*T_a**2 + V_max*(ti - T_a)
-        else:
-            dt = T - ti
-            q[i] = q1 - 0.5*A_max*dt**2
-    return t, q
+# DOF 및 관절 제한 정의
+DOF = 4
+max_vel = [1.0, 1.0, 1.0, 1.0] # rad/s
+max_acc = [1.0, 1.0, 1.0, 1.0] # rad/s^2
+lower_limit = [-1.0, -1.0, -1.0, -1.0]
+upper_limit = [1.0, 1.0, 1.0, 1.0]
 
-# 예시: 하나의 관절에 대해
-q0, q1 = 0.0, 1.0         # 시작/끝 각도 [rad]
-V_max, A_max = 0.5, 1.0   # rad/s, rad/s²
-t, q = lspb_segment(q0, q1, V_max, A_max)
+# Ruckig 인스턴스 생성성
+otg = Ruckig(
+    degrees_of_freedom=DOF,
+    max_velocity=max_vel,
+    max_acceleration=max_acc,
+    min_position=lower_limit,
+    max_position=upper_limit
+)
 
+# 파라미터
+inp = InputParameter(DOF)
+inp.current_position = [0.0, 0.0, 0.0, 0.0]
+inp.current_velocity = [0.0] * DOF
+inp.current_acceleration = [0.0] * DOF
+
+inp.target_position = [0.5, 0.5, 0.5, 0.5]
+inp.target_velocity = [0.0] * DOF
+inp.target_acceleration = [0.0] * DOF
+
+# 궤적 계산
+res = Result()
+trajectory = []
+
+while True:
+    status = otg.update(inp, res)
+    trajectory.append({
+        "position": res.new_position.copy(),
+        "velocity": res.new_velocity.copy(),
+        "acceleration": res.new_acceleration.copy(),
+    })
+
+    # 다음 스텝 위한 현재 상태 갱신
+    inp.current_position = res.new_position
+    inp.current_velocity = res.new_velocity
+    inp.current_acceleration = res.new_acceleration
+    if status != Result.Working:
+        break
+
+# 궤적 시각화
+def plot_trajectory(trajectory):
+    time_steps = len(trajectory)
+    time = np.linspace(0, time_steps, time_steps)
+
+    for i in range(DOF):
+        positions = [step["position"][i] for step in trajectory]
+        velocities = [step["velocity"][i] for step in trajectory]
+        accelerations = [step["acceleration"][i] for step in trajectory]
+
+        plt.figure(figsize=(12, 8))
+        plt.subplot(3, 1, 1)
+        plt.plot(time, positions, label=f'Position {i+1}')
+        plt.legend()
+        plt.subplot(3, 1, 2)
+        plt.plot(time, velocities, label=f'Velocity {i+1}')
+        plt.legend()
+        plt.subplot(3, 1, 3)
+        plt.plot(time, accelerations, label=f'Acceleration {i+1}')
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
